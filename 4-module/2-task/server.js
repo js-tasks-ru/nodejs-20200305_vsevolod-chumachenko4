@@ -37,26 +37,29 @@ server.on('request', (req, res) => {
       writeFile.on('finish', () => {
         res.statusCode = 201;
         res.statusMessage = 'Created';
-        res.end('Тело загружено');
+        res.end('Тело загружено', 'utf8');
       });
 
       try {
-        req.on('abort', () => {
+        req.on('abort', (err) => {
           fs.unlink(filepath, (err) => {
+            if (!err) return;
+
             throw err;
           });
         });
+
         limitSizeStream.on('error', (err) => {
           if (err.code === 'LIMIT_EXCEEDED') {
             res.statusCode = 413;
             res.statusMessage = 'Payload Too Large';
-
             res.end('Размер тела слишком большой', 'utf8');
             return;
           }
 
           throw err;
         });
+
         req.pipe(limitSizeStream).pipe(writeFile);
       } catch (err) {
         res.statusCode = 500;
