@@ -20,7 +20,6 @@ server.on('request', (req, res) => {
     const readFileStream = fs.createReadStream(filepath);
 
     readFileStream.on('error', (error) => {
-      console.log(error);
       if (error.code === 'ENOENT') {
         res.statusCode = 404;
         res.statusMessage = 'Not Found';
