@@ -17,60 +17,55 @@ server.on('request', (req, res) => {
 
   const filepath = path.join(__dirname, 'files', pathname);
 
-  function writeFile() {
-    fs.open(filepath, 'wx', (err) => {
-      if (err) {
-        if (err.code === 'EEXIST') {
-          res.statusCode = 409;
-          res.statusMessage = 'Conflict';
-          return res.end('Файл уже существует', 'utf-8');
-        }
-
-        res.statusCode = 500;
-        res.statusMessage = 'ServerError';
-        return res.error('Упс! Произошла ошибка', 'utf8');
-      }
-
-      const limitSizeStream = new LimitSizeStream({limit: 1024*1024});
-      const writeFile = fs.createWriteStream(filepath);
-
-      writeFile.on('finish', () => {
-        res.statusCode = 201;
-        res.statusMessage = 'Created';
-        res.end('Тело загружено', 'utf8');
-      });
-
-      try {
-        req.on('abort', (err) => {
-          fs.unlink(filepath, (err) => {
-            if (!err) return;
-
-            throw err;
-          });
-        });
-
-        limitSizeStream.on('error', (err) => {
-          if (err.code === 'LIMIT_EXCEEDED') {
-            res.statusCode = 413;
-            res.statusMessage = 'Payload Too Large';
-            res.end('Размер тела слишком большой', 'utf8');
-            return;
-          }
-
-          throw err;
-        });
-
-        req.pipe(limitSizeStream).pipe(writeFile);
-      } catch (err) {
-        res.statusCode = 500;
-        res.statusMessage = 'ServerError';
-        return res.error('Упс! Произошла ошибка', 'utf8');
-      }
-    });
-  }
-
   if (req.method === 'POST') {
-    writeFile();
+    if (req.headers['content-length'] && req.headers['content-length'] > 1e6) {
+      res.statusCode = 413;
+      res.end('payload too large');
+      return;
+    }
+
+    const writeFile = fs.createWriteStream(filepath, {flags: 'wx'});
+    const limitSizeStream = new LimitSizeStream({limit: 1e6});
+
+    writeFile.on('error', (err) => {
+      if (err.code === 'EEXIST') {
+        res.statusCode = 409;
+        res.statusMessage = 'Conflict';
+        res.end('Файл уже существует', 'utf-8');
+        return;
+      }
+
+      console.log(err);
+      res.statusCode = 500;
+      res.end('Server error');
+    });
+
+    req.on('aborted', () => {
+      fs.unlink(filepath, () => {
+      });
+    });
+
+    limitSizeStream.on('error', (err) => {
+      if (err.code === 'LIMIT_EXCEEDED') {
+        res.statusCode = 413;
+        res.end('file is too big');
+
+        fs.unlink(filepath, () => {});
+        return;
+      }
+
+      console.log(err);
+      res.statusCode = 500;
+      res.end('Server Error');
+    });
+
+    req.pipe(limitSizeStream).pipe(writeFile);
+
+    writeFile.on('close', () => {
+      res.statusCode = 201;
+      res.statusMessage = 'Created';
+      res.end('File is uploaded');
+    });
   } else {
     res.statusCode = 501;
     res.end('Not implemented');
